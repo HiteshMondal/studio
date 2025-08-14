@@ -355,14 +355,15 @@ def main():
                                         if response.status_code == 200:
                                             image_data = response.content
                                         else:
-                                            st.error("Failed to download background-removed image")
+                                            st.error("⚠️ Unable to download the background-removed image. Please try again.")
                                             return
                                     else:
-                                        st.error("Background removal failed")
+                                        st.error("❌ Background removal was not successful. Check settings and retry.")
                                         return
                                 else:
                                     image_data = uploaded_file.getvalue()
-                                
+
+                                                                
                                 # Now create packshot
                                 result = create_packshot(
                                     st.session_state.api_key,
@@ -383,96 +384,103 @@ def main():
                                 if "422" in str(e):
                                     st.warning("Content moderation failed. Please ensure the image is appropriate.")
                 
-                elif edit_option == "Add Shadow":
-                    col_a, col_b = st.columns(2)
-                    with col_a:
-                        shadow_type = st.selectbox("Shadow Type", ["Natural", "Drop"])
-                        bg_color = st.color_picker("Background Color (optional)", "#FFFFFF")
-                        use_transparent_bg = st.checkbox("Use Transparent Background", True)
-                        shadow_color = st.color_picker("Shadow Color", "#000000")
-                        sku = st.text_input("SKU (optional)", "")
+                    elif edit_option == "Add Shadow":
+                        col_a, col_b = st.columns(2)
+                        with col_a:
+                            shadow_type = st.selectbox("✨ Choose Shadow Style", ["Natural", "Drop"])
+                            bg_color = st.color_picker("🎨 Background Color (optional)", "#FFFFFF")
+                            use_transparent_bg = st.checkbox("🪟 Use Transparent Background", True)
+                            shadow_color = st.color_picker("🌑 Shadow Color", "#000000")
+                            sku = st.text_input("🆔 SKU (optional)", "")
+                            
+                            # Shadow offset
+                            st.subheader("⚙️ Shadow Offset Controls")
+                            offset_x = st.slider("↔️ X Offset", -50, 50, 0)
+                            offset_y = st.slider("↕️ Y Offset", -50, 50, 15)
                         
-                        # Shadow offset
-                        st.subheader("Shadow Offset")
-                        offset_x = st.slider("X Offset", -50, 50, 0)
-                        offset_y = st.slider("Y Offset", -50, 50, 15)
-                    
-                    with col_b:
-                        shadow_intensity = st.slider("Shadow Intensity", 0, 100, 60)
-                        shadow_blur = st.slider("Shadow Blur", 0, 50, 15 if shadow_type.lower() == "regular" else 20)
-                        
-                        # Float shadow specific controls
-                        if shadow_type == "Float":
-                            st.subheader("Float Shadow Settings")
-                            shadow_width = st.slider("Shadow Width", -100, 100, 0)
-                            shadow_height = st.slider("Shadow Height", -100, 100, 70)
-                        
-                        force_rmbg = st.checkbox("Force Background Removal", False)
-                        content_moderation = st.checkbox("Enable Content Moderation", False)
-                    
-                    if st.button("Add Shadow"):
-                        with st.spinner("Adding shadow effect..."):
-                            try:
-                                result = add_shadow(
-                                    api_key=st.session_state.api_key,
-                                    image_data=uploaded_file.getvalue(),
-                                    shadow_type=shadow_type.lower(),
-                                    background_color=None if use_transparent_bg else bg_color,
-                                    shadow_color=shadow_color,
-                                    shadow_offset=[offset_x, offset_y],
-                                    shadow_intensity=shadow_intensity,
-                                    shadow_blur=shadow_blur,
-                                    shadow_width=shadow_width if shadow_type == "Float" else None,
-                                    shadow_height=shadow_height if shadow_type == "Float" else 70,
-                                    sku=sku if sku else None,
-                                    force_rmbg=force_rmbg,
-                                    content_moderation=content_moderation
-                                )
-                                
-                                if result and "result_url" in result:
-                                    st.success("✨ Shadow added successfully!")
-                                    st.session_state.edited_image = result["result_url"]
-                                else:
-                                    st.error("No result URL in the API response. Please try again.")
-                            except Exception as e:
-                                st.error(f"Error adding shadow: {str(e)}")
-                                if "422" in str(e):
-                                    st.warning("Content moderation failed. Please ensure the image is appropriate.")
-                
+                        with col_b:
+                            shadow_intensity = st.slider("💡 Shadow Intensity", 0, 100, 60)
+                            shadow_blur = st.slider("🌫️ Shadow Blur", 0, 50, 15 if shadow_type.lower() == "regular" else 20)
+                            
+                            # Float shadow specific controls
+                            if shadow_type == "Float":
+                                st.subheader("☁️ Float Shadow Settings")
+                                shadow_width = st.slider("📏 Shadow Width", -100, 100, 0)
+                                shadow_height = st.slider("📐 Shadow Height", -100, 100, 70)
+                            
+                            force_rmbg = st.checkbox("🧹 Force Background Removal", False)
+                            content_moderation = st.checkbox("🛡️ Enable Content Moderation", False)
+
+                if st.button("🌟 Apply Shadow Effect", help="Click to generate shadow with your chosen settings"):
+                    with st.spinner("🎨 Working on your shadow effect... Please wait ⏳"):
+                        try:
+                            result = add_shadow(
+                                api_key=st.session_state.api_key,
+                                image_data=uploaded_file.getvalue(),
+                                shadow_type=shadow_type.lower(),
+                                background_color=None if use_transparent_bg else bg_color,
+                                shadow_color=shadow_color,
+                                shadow_offset=[offset_x, offset_y],
+                                shadow_intensity=shadow_intensity,
+                                shadow_blur=shadow_blur,
+                                shadow_width=shadow_width if shadow_type == "Float" else None,
+                                shadow_height=shadow_height if shadow_type == "Float" else 70,
+                                sku=sku if sku else None,
+                                force_rmbg=force_rmbg,
+                                content_moderation=content_moderation
+                            )
+                            
+                            if result and "result_url" in result:
+                                st.success("✅ Shadow effect applied successfully! 🎉")
+                                st.session_state.edited_image = result["result_url"]
+                            else:
+                                st.error("⚠️ Couldn’t fetch the result URL from the API. Please try again.")
+                        except Exception as e:
+                            st.error(f"❌ Oops! Something went wrong: {str(e)}")
+                            if "422" in str(e):
+                                st.warning("🛡️ Content moderation failed. Please use an appropriate image.")
+
                 elif edit_option == "Lifestyle Shot":
                     shot_type = st.radio("Shot Type", ["Text Prompt", "Reference Image"])
                     
                     # Common settings for both types
                     col1, col2 = st.columns(2)
                     with col1:
-                        placement_type = st.selectbox("Placement Type", [
+                        st.markdown('<div class="custom-header">Placement Options</div>', unsafe_allow_html=True)
+                        placement_type = st.selectbox("Choose Placement Style", [
                             "Original", "Automatic", "Manual Placement",
                             "Manual Padding", "Custom Coordinates"
                         ])
-                        num_results = st.slider("Number of Results", 1, 8, 4)
-                        sync_mode = st.checkbox("Synchronous Mode", False,
-                            help="Wait for results instead of getting URLs immediately")
-                        original_quality = st.checkbox("Original Quality", False,
-                            help="Maintain original image quality")
+                        
+                        num_results = st.slider("Number of Variations", 1, 8, 4,
+                                                help="Select how many output results you want to generate")
+                        
+                        sync_mode = st.checkbox("Enable Real-time Mode", False,
+                            help="If enabled, you’ll wait for the full results instead of just URLs")
+                        
+                        original_quality = st.checkbox("Preserve Original Quality", False,
+                            help="Keeps the highest possible resolution & detail")
                         
                         if placement_type == "Manual Placement":
-                            positions = st.multiselect("Select Positions", [
+                            st.markdown('<div class="custom-subheader">Select Product Positions</div>', unsafe_allow_html=True)
+                            positions = st.multiselect("", [
                                 "Upper Left", "Upper Right", "Bottom Left", "Bottom Right",
                                 "Right Center", "Left Center", "Upper Center",
                                 "Bottom Center", "Center Vertical", "Center Horizontal"
                             ], ["Upper Left"])
                         
                         elif placement_type == "Manual Padding":
-                            st.subheader("Padding Values (pixels)")
+                            st.markdown('<div class="custom-subheader">Padding Controls (in pixels)</div>', unsafe_allow_html=True)
                             pad_left = st.number_input("Left Padding", 0, 1000, 0)
                             pad_right = st.number_input("Right Padding", 0, 1000, 0)
                             pad_top = st.number_input("Top Padding", 0, 1000, 0)
                             pad_bottom = st.number_input("Bottom Padding", 0, 1000, 0)
                         
                         elif placement_type in ["Automatic", "Manual Placement", "Custom Coordinates"]:
-                            st.subheader("Shot Size")
-                            shot_width = st.number_input("Width", 100, 2000, 1000)
-                            shot_height = st.number_input("Height", 100, 2000, 1000)
+                            st.markdown('<div class="custom-subheader">Shot Dimensions</div>', unsafe_allow_html=True)
+                            shot_width = st.number_input("Width (px)", 100, 2000, 1000)
+                            shot_height = st.number_input("Height (px)", 100, 2000, 1000)
+
                     
                     with col2:
                         if placement_type == "Custom Coordinates":
