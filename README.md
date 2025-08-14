@@ -15,8 +15,8 @@ A powerful Streamlit app for generating professional product ads using Bria AI's
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/reponame.git
-cd reponame
+git https://github.com/HiteshMondal/studio.git
+cd studio
 ```
 
 2. Install dependencies:
