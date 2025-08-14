@@ -1,7 +1,7 @@
 from services.init import add_shadow, create_packshot, enhance_prompt, generate_hd_image, lifestyle_shot_by_image, lifestyle_shot_by_text
-import streamlit as st
+import streamlit as st # pyright: ignore[reportMissingImports]
 import os
-from dotenv import load_dotenv
+from dotenv import load_dotenv # type: ignore
 from services import (
     generative_fill,
     erase_foreground
@@ -12,8 +12,8 @@ import requests
 import json
 import time
 import base64
-from streamlit_drawable_canvas import st_canvas
-import numpy as np
+from streamlit_drawable_canvas import st_canvas # pyright: ignore[reportMissingImports]
+import numpy as np # pyright: ignore[reportMissingImports]
 from services.erase_foreground import erase_foreground
 
 # Configure Streamlit page
@@ -76,8 +76,8 @@ def apply_image_filter(image, filter_type: str) -> Image.Image | None:
         filters = {
             "Grayscale": lambda im: im.convert("L"),
             "Sepia": apply_sepia,
-            "High Contrast": lambda im: ImageEnhance.Contrast(im).enhance(1.5),
-            "Blur": lambda im: im.filter(ImageFilter.BLUR)
+            "High Contrast": lambda im: ImageEnhance.Contrast(im).enhance(1.5), # type: ignore
+            "Blur": lambda im: im.filter(ImageFilter.BLUR) # type: ignore
         }
 
         # Apply chosen filter if valid
@@ -343,7 +343,7 @@ def main():
                             try:
                                 # First remove background if needed
                                 if force_rmbg:
-                                    from services.background_service import remove_background
+                                    from services.background_service import remove_background # type: ignore
                                     bg_result = remove_background(
                                         st.session_state.api_key,
                                         uploaded_file.getvalue(),
