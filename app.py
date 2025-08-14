@@ -18,7 +18,7 @@ from services.erase_foreground import erase_foreground
 
 # Configure Streamlit page
 st.set_page_config(
-    page_title="AdSnap Studio",
+    page_title="Studio",
     page_icon="🎨",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -52,214 +52,265 @@ def initialize_session_state():
     if 'enhanced_prompt' not in st.session_state:
         st.session_state.enhanced_prompt = None
 
-def download_image(url):
-    """Download image from URL and return as bytes."""
+def download_image(url: str) -> bytes | None:
+    """Download an image from a given URL and return raw bytes."""
     try:
-        response = requests.get(url)
+        response = requests.get(url, timeout=10)
         response.raise_for_status()
         return response.content
     except Exception as e:
-        st.error(f"Error downloading image: {str(e)}")
+        st.error(f"❌ Error downloading image: {e}")
         return None
 
-def apply_image_filter(image, filter_type):
-    """Apply various filters to the image."""
+# -----------------------------
+# Utility: Apply Filters
+# -----------------------------
+def apply_image_filter(image, filter_type: str) -> Image.Image | None:
+    """Apply a selected filter to the image (bytes or PIL.Image)."""
+
     try:
+        # Ensure we always work with a PIL image
         img = Image.open(io.BytesIO(image)) if isinstance(image, bytes) else Image.open(image)
-        
-        if filter_type == "Grayscale":
-            return img.convert('L')
-        elif filter_type == "Sepia":
-            width, height = img.size
-            pixels = img.load()
-            for x in range(width):
-                for y in range(height):
-                    r, g, b = img.getpixel((x, y))[:3]
-                    tr = int(0.393 * r + 0.769 * g + 0.189 * b)
-                    tg = int(0.349 * r + 0.686 * g + 0.168 * b)
-                    tb = int(0.272 * r + 0.534 * g + 0.131 * b)
-                    img.putpixel((x, y), (min(tr, 255), min(tg, 255), min(tb, 255)))
-            return img
-        elif filter_type == "High Contrast":
-            return img.point(lambda x: x * 1.5)
-        elif filter_type == "Blur":
-            return img.filter(Image.BLUR)
-        else:
-            return img
+
+        # Filter mappings
+        filters = {
+            "Grayscale": lambda im: im.convert("L"),
+            "Sepia": apply_sepia,
+            "High Contrast": lambda im: ImageEnhance.Contrast(im).enhance(1.5),
+            "Blur": lambda im: im.filter(ImageFilter.BLUR)
+        }
+
+        # Apply chosen filter if valid
+        if filter_type in filters:
+            return filters[filter_type](img)
+        return img
+
     except Exception as e:
-        st.error(f"Error applying filter: {str(e)}")
+        st.error(f"⚠️ Error applying filter ({filter_type}): {e}")
         return None
 
-def check_generated_images():
-    """Check if pending images are ready and update the display."""
-    if st.session_state.pending_urls:
-        ready_images = []
-        still_pending = []
-        
-        for url in st.session_state.pending_urls:
-            try:
-                response = requests.head(url)
-                # Consider an image ready if we get a 200 response with any content length
-                if response.status_code == 200:
-                    ready_images.append(url)
-                else:
-                    still_pending.append(url)
-            except Exception as e:
+# -----------------------------
+# Custom Sepia Filter
+# -----------------------------
+def apply_sepia(image: Image.Image) -> Image.Image:
+    """Apply a sepia tone effect to a PIL image."""
+    sepia = image.convert("RGB")
+    width, height = sepia.size
+    pixels = sepia.load()
+
+    for x in range(width):
+        for y in range(height):
+            r, g, b = pixels[x, y]
+            tr = int(0.393 * r + 0.769 * g + 0.189 * b)
+            tg = int(0.349 * r + 0.686 * g + 0.168 * b)
+            tb = int(0.272 * r + 0.534 * g + 0.131 * b)
+            pixels[x, y] = (min(tr, 255), min(tg, 255), min(tb, 255))
+
+    return sepia
+
+def check_generated_images() -> bool:
+    """
+    Check if any pending images in session_state are ready.
+    Updates session_state with ready and pending lists.
+    Returns True if at least one image is ready.
+    """
+    if not st.session_state.get("pending_urls"):
+        return False
+
+    ready_images, still_pending = [], []
+
+    for url in st.session_state.pending_urls:
+        try:
+            response = requests.head(url, timeout=5)
+            if response.status_code == 200:
+                ready_images.append(url)
+            else:
                 still_pending.append(url)
-        
-        # Update the pending URLs list
-        st.session_state.pending_urls = still_pending
-        
-        # If we found any ready images, update the display
-        if ready_images:
-            st.session_state.edited_image = ready_images[0]  # Display the first ready image
-            if len(ready_images) > 1:
-                st.session_state.generated_images = ready_images  # Store all ready images
-            return True
-            
+        except Exception as e:
+            still_pending.append(url)
+
+    # Update state
+    st.session_state.pending_urls = still_pending
+
+    if ready_images:
+        # Show the first ready image as "edited"
+        st.session_state.edited_image = ready_images[0]
+
+        # Store all ready images for later use
+        st.session_state.generated_images = ready_images
+        return True
+
     return False
 
-def auto_check_images(status_container):
-    """Automatically check for image completion a few times."""
-    max_attempts = 3
-    attempt = 0
-    while attempt < max_attempts and st.session_state.pending_urls:
-        time.sleep(2)  # Wait 2 seconds between checks
+# -----------------------------
+# Auto Check Images with UI Feedback
+# -----------------------------
+def auto_check_images(status_container, max_attempts: int = 3, delay: int = 2) -> bool:
+    """
+    Poll pending images up to `max_attempts` times with `delay` seconds between.
+    Shows live feedback in the given status_container.
+    Returns True if an image becomes ready.
+    """
+    for attempt in range(1, max_attempts + 1):
+        if not st.session_state.get("pending_urls"):
+            return False
+
+        status_container.info(f"⏳ Checking for images... (Attempt {attempt}/{max_attempts})")
+        time.sleep(delay)
+
         if check_generated_images():
-            status_container.success("✨ Image ready!")
+            status_container.success("✨ Image is ready!")
             return True
-        attempt += 1
+
+    status_container.warning("⚠️ No images became ready after multiple checks.")
     return False
+
 
 def main():
-    st.title("AdSnap Studio")
+    st.title("Studio")
     initialize_session_state()
     
     # Sidebar for API key
     with st.sidebar:
-        st.header("Settings")
-        api_key = st.text_input("Enter your API key:", value=st.session_state.api_key if st.session_state.api_key else "", type="password")
-        if api_key:
-            st.session_state.api_key = api_key
+        st.title("⚙️ Settings")
+        with st.expander("🔑 API Configuration", expanded=True):
+            api_key = st.text_input(
+                "Enter your API key",
+                value=st.session_state.api_key if st.session_state.api_key else "",
+                type="password",
+                placeholder="Paste your BRIA API key here"
+            )
+            if api_key:
+                st.session_state.api_key = api_key
+                st.success("✅ API key loaded")
+            else:
+                st.warning("⚠️ No API key provided")
 
     # Main tabs
     tabs = st.tabs([
-        "🎨 Generate Image",
-        "🖼️ Lifestyle Shot",
-        "🎨 Generative Fill",
-        "🎨 Erase Elements"
+        "🎨 Generate",
+        "🏞️ Lifestyle Shot",
+        "🪄 Generative Fill",
+        "✂️ Erase Elements"
     ])
     
     # Generate Images Tab
     with tabs[0]:
-        st.header("Generate Images")
-        
+        st.markdown(
+            "<h2 style='color:#6C63FF;'>🎨 Generate Images</h2>", 
+            unsafe_allow_html=True
+        )
+        st.markdown(
+            "<p style='color:gray; font-size:15px;'>Craft AI-powered visuals with enhanced prompts and custom styles.</p>",
+            unsafe_allow_html=True
+        )
+
         col1, col2 = st.columns([2, 1])
+        
+        # -----------------------------
+        # Left Column - Prompt Section
+        # -----------------------------
         with col1:
-            # Prompt input
-            prompt = st.text_area("Enter your prompt", 
-                                value="",
-                                height=100,
-                                key="prompt_input")
-            
-            # Store original prompt in session state when it changes
+            st.markdown("#### 📝 Prompt")
+            prompt = st.text_area(
+                "Write your creative idea here:",
+                value="",
+                height=100,
+                key="prompt_input",
+                placeholder="E.g. A futuristic car in neon city lights"
+            )
+
+            # Store original prompt in session state
             if "original_prompt" not in st.session_state:
                 st.session_state.original_prompt = prompt
             elif prompt != st.session_state.original_prompt:
                 st.session_state.original_prompt = prompt
-                st.session_state.enhanced_prompt = None  # Reset enhanced prompt when original changes
-            
+                st.session_state.enhanced_prompt = None
+
             # Enhanced prompt display
             if st.session_state.get('enhanced_prompt'):
-                st.markdown("**Enhanced Prompt:**")
-                st.markdown(f"*{st.session_state.enhanced_prompt}*")
-            
+                st.info(f"✨ **Enhanced Prompt:** {st.session_state.enhanced_prompt}")
+
             # Enhance Prompt button
-            if st.button("✨ Enhance Prompt", key="enhance_button"):
+            if st.button("✨ Enhance Prompt", use_container_width=True):
                 if not prompt:
-                    st.warning("Please enter a prompt to enhance.")
+                    st.warning("⚠️ Please enter a prompt to enhance.")
                 else:
-                    with st.spinner("Enhancing prompt..."):
+                    with st.spinner("🔧 Enhancing your prompt..."):
                         try:
                             result = enhance_prompt(st.session_state.api_key, prompt)
                             if result:
                                 st.session_state.enhanced_prompt = result
-                                st.success("Prompt enhanced!")
-                                st.experimental_rerun()  # Rerun to update the display
+                                st.success("✅ Prompt enhanced!")
+                                st.experimental_rerun()
                         except Exception as e:
-                            st.error(f"Error enhancing prompt: {str(e)}")
-                            
-            # Debug information
-            st.write("Debug - Session State:", {
-                "original_prompt": st.session_state.get("original_prompt"),
-                "enhanced_prompt": st.session_state.get("enhanced_prompt")
-            })
-        
+                            st.error(f"❌ Error enhancing prompt: {str(e)}")
+
+        # -----------------------------
+        # Right Column - Settings
+        # -----------------------------
         with col2:
-            num_images = st.slider("Number of images", 1, 4, 1)
-            aspect_ratio = st.selectbox("Aspect ratio", ["1:1", "16:9", "9:16", "4:3", "3:4"])
-            enhance_img = st.checkbox("Enhance image quality", value=True)
-            
-            # Style options
-            st.subheader("Style Options")
-            style = st.selectbox("Image Style", [
+            st.markdown("#### ⚙️ Settings")
+
+            num_images = st.slider("🖼️ Number of images", 1, 4, 1)
+            aspect_ratio = st.selectbox("📐 Aspect ratio", ["1:1", "16:9", "9:16", "4:3", "3:4"])
+            enhance_img = st.toggle("🔍 Enhance image quality", value=True)
+
+            st.markdown("---")
+            st.markdown("#### 🎭 Style Options")
+            style = st.selectbox("Choose Image Style", [
                 "Realistic", "Artistic", "Cartoon", "Sketch", 
                 "Watercolor", "Oil Painting", "Digital Art"
             ])
-            
-            # Add style to prompt
+
+            # Add style to prompt dynamically
             if style and style != "Realistic":
                 prompt = f"{prompt}, in {style.lower()} style"
-        
-        # Generate button
-        if st.button("🎨 Generate Images", type="primary"):
+
+        # -----------------------------
+        # Generate Button
+        # -----------------------------
+        st.markdown("---")
+        if st.button("🚀 Generate Images", type="primary", use_container_width=True):
             if not st.session_state.api_key:
-                st.error("Please enter your API key in the sidebar.")
-                return
-                
-            with st.spinner("🎨 Generating your masterpiece..."):
-                try:
-                    # Convert aspect ratio to proper format
-                    result = generate_hd_image(
-                        prompt=st.session_state.enhanced_prompt or prompt,
-                        api_key=st.session_state.api_key,
-                        num_results=num_images,
-                        aspect_ratio=aspect_ratio,  # Already in correct format (e.g. "1:1")
-                        sync=True,  # Wait for results
-                        enhance_image=enhance_img,
-                        medium="art" if style != "Realistic" else "photography",
-                        prompt_enhancement=False,  # We're already using our own prompt enhancement
-                        content_moderation=True  # Enable content moderation by default
-                    )
-                    
-                    if result:
-                        # Debug logging
-                        st.write("Debug - Raw API Response:", result)
-                        
-                        if isinstance(result, dict):
-                            if "result_url" in result:
-                                st.session_state.edited_image = result["result_url"]
-                                st.success("✨ Image generated successfully!")
-                            elif "result_urls" in result:
-                                st.session_state.edited_image = result["result_urls"][0]
-                                st.success("✨ Image generated successfully!")
-                            elif "result" in result and isinstance(result["result"], list):
-                                for item in result["result"]:
-                                    if isinstance(item, dict) and "urls" in item:
-                                        st.session_state.edited_image = item["urls"][0]
-                                        st.success("✨ Image generated successfully!")
-                                        break
-                                    elif isinstance(item, list) and len(item) > 0:
-                                        st.session_state.edited_image = item[0]
-                                        st.success("✨ Image generated successfully!")
-                                        break
-                        else:
-                            st.error("No valid result format found in the API response.")
-                            
-                except Exception as e:
-                    st.error(f"Error generating images: {str(e)}")
-                    st.write("Full error:", str(e))
-    
+                st.error("❌ Please enter your API key in the sidebar.")
+            else:
+                with st.spinner("🎨 Creating your masterpiece... Please wait."):
+                    try:
+                        result = generate_hd_image(
+                            prompt=st.session_state.enhanced_prompt or prompt,
+                            api_key=st.session_state.api_key,
+                            num_results=num_images,
+                            aspect_ratio=aspect_ratio,
+                            sync=True,
+                            enhance_image=enhance_img,
+                            medium="art" if style != "Realistic" else "photography",
+                            prompt_enhancement=False,
+                            content_moderation=True
+                        )
+
+                        if result:
+                            st.success("✨ Image generated successfully!")
+                            st.write("🔍 Debug - Raw API Response:", result)
+
+                            if isinstance(result, dict):
+                                if "result_url" in result:
+                                    st.session_state.edited_image = result["result_url"]
+                                elif "result_urls" in result:
+                                    st.session_state.edited_image = result["result_urls"][0]
+                                elif "result" in result and isinstance(result["result"], list):
+                                    for item in result["result"]:
+                                        if isinstance(item, dict) and "urls" in item:
+                                            st.session_state.edited_image = item["urls"][0]
+                                            break
+                                        elif isinstance(item, list) and len(item) > 0:
+                                            st.session_state.edited_image = item[0]
+                                            break
+                            else:
+                                st.error("⚠️ No valid result format found in the API response.")
+                    except Exception as e:
+                        st.error(f"❌ Error generating images: {str(e)}")
+
     # Product Photography Tab
     with tabs[1]:
         st.header("Product Photography")
